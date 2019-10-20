@@ -2,18 +2,14 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
 
 	dockerApi "github.com/fsouza/go-dockerclient"
 )
 
-var dnsBind = flag.String("dns-bind", getopt("DNS_BIND", "0.0.0.0"), "Bind address for the DNS server")
-var dnsPort = flag.String("dns-port", getopt("DNS_PORT", "53"), "Port for the DNS server")
-var dnsRecursor = flag.String("dns-recursor", getopt("DNS_RECURSOR", ""), "DNS recursor for non-local addresses")
-var dnsDomain = flag.String("dns-domain", getopt("DNS_DOMAIN", "localdomain"), "The domain that Docker-spy should consider local")
 var dockerHost = flag.String("docker-host", getopt("DOCKER_HOST", "unix:///var/run/docker.sock"), "Address for the Docker daemon")
 
 func getopt(name, def string) string {
@@ -22,26 +18,24 @@ func getopt(name, def string) string {
 	}
 	return def
 }
+func readEventStream(events chan *dockerApi.APIEvents) {
+	for msg := range events {
+		fmt.Println("Event received!")
+		fmt.Printf("%+v\n", msg)
+	}
+}
+
+func watch_events(docker *dockerApi.Client) {
+
+	events := make(chan *dockerApi.APIEvents)
+	docker.AddEventListener(events)
+
+	go readEventStream(events)
+}
 
 func main() {
 
 	flag.Parse()
-
-	log.Println("Starting DNS server...")
-
-	port, err := strconv.Atoi(*dnsPort)
-	if err != nil {
-		log.Fatalf("Could not convert %s to numeric type", *dnsPort)
-	}
-
-	server := &DNS{
-		bind:      *dnsBind,
-		port:      port,
-		recursors: []string{*dnsRecursor + ":53"},
-		domain:    *dnsDomain + ".",
-	}
-
-	server.Run()
 
 	log.Println("Listening for container events...")
 
@@ -51,12 +45,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	spy := &Spy{
-		docker: docker,
-		dns:    server,
-	}
-
-	spy.Watch()
+	watch_events(docker)
 
 	sig := make(chan os.Signal)
 	signal.Notify(sig, os.Interrupt)
